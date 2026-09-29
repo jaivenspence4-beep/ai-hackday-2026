@@ -173,3 +173,11 @@ pending; this helper alone is not sponsor-demo proof.
 New Scribe publication and Critic review tools record the identifier field categories they processed against the authenticated Desk source message. The boundary verifies these runtime records and emits only field labels and evidence IDs. This is tool/runtime processing evidence, **not human reading or Band delivery measurement**. Legacy or mismatched metadata remains unverified and blocks full phase-2 observer success. Detection is conservative and does not certify complete identification. The graph query is global; current-case proof comes from the matching approved manifest.
 
 Set `ENABLE_DRUG_RESEARCH=1` on Scribe, Critic and Researcher to activate the separate drug-only room. Runtime tool wiring now starts recruitment after Scribe publishes, dispatches research-room messages to the relay, and prevents Critic approval until an authenticated result or explicit unavailability arrives. Mock search facts are never propagated as evidence. Live research verification remains pending.
+
+Desk local inbox intake is opt-in with `ENABLE_LOCAL_INBOX=1`, `SAFESCRIBE_INBOX`
+(default `inbox`), and `BAND_CHARGE_HUMAN_ID` set to an actual User in the lobby.
+The watcher shares Desk's started Band client; no second WebSocket or local agent
+orchestrator is created. Its upload producer must atomically rename completed
+`.txt` files; `.part` files are ignored. Other roles never run this watcher.
+Research recruitment interrupted after BRIEF publication can be resumed by the
+case-bound `band_start_research` tool without creating another brief revision.

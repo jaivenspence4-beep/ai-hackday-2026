@@ -145,6 +145,20 @@ def make_tools(role: str, holder: dict, ids: dict[str,str]) -> list:
                 async with lock(tools):
                     return await relay_research(tools,ids)
             result.append(band_relay_research)
+            @tool
+            async def band_start_research(config: RunnableConfig) -> dict:
+                """Resume research for the current authenticated published brief without creating a revision."""
+                from hallway.common.research_room import request_research
+                tools=bound(config)
+                async with lock(tools):
+                    state=case_state(await room_records(tools,ids))
+                    if not state['brief'] or state['approved']:
+                        raise ValueError('An unapproved authenticated brief is required')
+                    brief=Brief.model_validate(state['brief']['brief'])
+                    if digest(brief.model_dump())!=state['brief']['digest']:
+                        raise ValueError('Current brief digest mismatch')
+                    return await request_research(tools,ids,brief,state['recording'])
+            result.append(band_start_research)
         else:
             @tool
             async def band_research_drugs(config: RunnableConfig) -> dict:
@@ -232,6 +246,29 @@ def build_agent(role: str, instructions: str):
     return agent
 
 
+async def run_agent(role: str, agent):
+    """Desk inbox uses the same started SDK client and never a second WebSocket."""
+    if role!='desk' or os.getenv('ENABLE_LOCAL_INBOX')!='1':
+        return await agent.run()
+    from hallway.ingest.watch import watch_inbox
+    from uuid import UUID
+    lobby_id=os.environ.get('BAND_LOBBY_ROOM_ID','')
+    UUID(lobby_id)
+    UUID(os.environ.get('BAND_CHARGE_HUMAN_ID',''))
+    ids=identities()
+    async with agent:
+        lobby=AgentTools(lobby_id,agent.runtime.link.rest,agent_id=ids['desk'])
+        tasks=[asyncio.create_task(agent.run_forever()),asyncio.create_task(watch_inbox(lobby,ids))]
+        try:
+            done,_=await asyncio.wait(tasks,return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        finally:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks,return_exceptions=True)
+
+
 def run(role: str, instructions: str):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
     try:
@@ -239,4 +276,4 @@ def run(role: str, instructions: str):
         load_dotenv()
     except ImportError:
         pass
-    asyncio.run(build_agent(role, instructions).run())
+    asyncio.run(run_agent(role,build_agent(role,instructions)))
