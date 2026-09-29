@@ -45,13 +45,21 @@ def local_salt() -> bytes:
 
 
 def load_recording(name: str = 'handoff_2') -> dict:
-    from hallway.common.brief import extract_identifiers
     path = fixture_path(name)
     if path.stat().st_size > 1_000_000:
         raise ValueError('Fixture exceeds the 1 MB demo input limit')
     transcript = path.read_text(encoding='utf-8').strip()
     if not transcript:
         raise ValueError('Fixture is empty')
+    return recording_from_text(transcript)
+
+
+def recording_from_text(transcript: str, source: str = 'synthetic text fixture; not clinical patient data') -> dict:
+    """Assign the same local pseudonym for fixtures and operator-uploaded text."""
+    from hallway.common.brief import extract_identifiers
+    transcript=transcript.strip()
+    if not transcript:
+        raise ValueError('Transcript is empty')
     identifiers = sorted({unicodedata.normalize('NFKC', value).casefold().strip()
                           for value in extract_identifiers(transcript) if value.strip()})
     if not identifiers:
@@ -60,5 +68,5 @@ def load_recording(name: str = 'handoff_2') -> dict:
     canonical = ''.join(f'{len(value)}:{value}' for value in identifiers).encode('utf-8')
     pseudo_id = 'p_' + hmac.new(local_salt(), canonical, hashlib.sha256).hexdigest()
     return {'transcript': transcript, 'pseudo_id': pseudo_id,
-            'source': 'synthetic text fixture; not clinical patient data',
+            'source': source,
             'at': datetime.now(timezone.utc).isoformat()}
