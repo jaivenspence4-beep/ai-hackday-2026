@@ -203,7 +203,7 @@ def make_tools(role: str, holder: dict, ids: dict[str,str]) -> list:
                          'approved_room_id':tools.room_id,'merged':bool(result.get('merged')),
                          'encounter':result.get('encounter'),'who_saw_identifiers':lineage,
                          'provenance_kind':payload['provenance_kind'],'lineage_query_scope':'global_graph_all_encounters',
-                         'lineage_verification':'unverified_processing_only'}
+                         'lineage_verification':payload.get('lineage_verification','unverified_processing_only')}
                 await post(tools,'GRAPH_WRITTEN',receipt,['critic'],ids)
                 return receipt
         result.append(band_write_approved_graph)

@@ -126,3 +126,25 @@ def identifier_violations(payload: dict, recording: dict) -> list[str]:
     if DOB.search(serialized) or MONTH_DOB.search(serialized) or PHONE.search(serialized) or MRN.search(serialized) or ADDRESS.search(serialized):
         reasons.append('DOB/MRN/phone/address pattern present in outbound JSON')
     return reasons
+
+
+IDENTIFIER_FIELDS = frozenset({'patient_name','dob','mrn','phone','address'})
+
+
+def identifier_fields(transcript: str) -> list[str]:
+    """Detected field categories only; no claim of complete identifier detection."""
+    fields=set()
+    name=r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}"
+    if re.search(rf"(?i:patient(?: name)?|full name|name|This is)\s*(?::|=|is)?\s*{name}",transcript) or re.search(rf"{name},\s*(?i:date of birth|DOB|medical record|MRN)",transcript):
+        fields.add('patient_name')
+    if DOB.search(transcript) or re.search(r'(?:DOB|date of birth|born)\s*(?::|=|is)?\s*[^.;\n]+',transcript,re.I):
+        fields.add('dob')
+    digit=r'(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b'
+    spoken=rf'{digit}(?:[ ,;-]+{digit}){{3,}}'
+    if MRN.search(transcript) or re.search(rf'(?:MRN|medical record(?: number)?)\s*(?:is|:|=)?\s*{spoken}',transcript,re.I):
+        fields.add('mrn')
+    if PHONE.search(transcript) or re.search(rf'(?:phone(?: number)?|telephone(?: number)?|(?:his|her|their|contact) number)\s*(?:is|:|=)?\s*{spoken}',transcript,re.I):
+        fields.add('phone')
+    if ADDRESS.search(transcript) or re.search(r'address\s*[:=]\s*[^;\n]+',transcript,re.I):
+        fields.add('address')
+    return sorted(fields)

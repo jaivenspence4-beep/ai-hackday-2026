@@ -170,6 +170,6 @@ Brave results count as live evidence only when their own metadata says `mock: fa
 cover the boundary and retries. Runtime tool wiring and a live end-to-end research run remain
 pending; this helper alone is not sponsor-demo proof.
 
-The current processing-only manifest does **not** verify identifier-field access. Graph writes and their actual query results remain usable, but the live observer explicitly reports lineage unverified and keeps full phase 2 incomplete. No empty/global query is promoted to proof of access.
+New Scribe publication and Critic review tools record the identifier field categories they processed against the authenticated Desk source message. The boundary verifies these runtime records and emits only field labels and evidence IDs. This is tool/runtime processing evidence, **not human reading or Band delivery measurement**. Legacy or mismatched metadata remains unverified and blocks full phase-2 observer success. Detection is conservative and does not certify complete identification. The graph query is global; current-case proof comes from the matching approved manifest.
 
 Set `ENABLE_DRUG_RESEARCH=1` on Scribe, Critic and Researcher to activate the separate drug-only room. Runtime tool wiring now starts recruitment after Scribe publishes, dispatches research-room messages to the relay, and prevents Critic approval until an authenticated result or explicit unavailability arrives. Mock search facts are never propagated as evidence. Live research verification remains pending.

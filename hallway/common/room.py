@@ -6,7 +6,7 @@ import re
 import os
 from datetime import datetime, timezone
 from band.runtime.tools.agent import AgentTools
-from hallway.common.brief import Brief, digest, normalize, validate_brief
+from hallway.common.brief import Brief, digest, normalize, validate_brief, identifier_fields
 
 PREFIX = 'SAFESCRIBE/1\n'
 LEGACY_PREFIX = 'HANDOFF/1\n'
@@ -94,7 +94,7 @@ def case_state(records: list[dict]) -> dict:
             raise ValueError('Invalid or duplicate revision sequence; human review required')
     verdicts = [r for r in records if r['kind'] == 'VERDICT']
     enrichments = [r for r in records if r['kind'] == 'ENRICHMENT']
-    return {'recording':source['recording'], 'brief': briefs[-1] if briefs else None,
+    return {'source_message_id':source['message_id'], 'recording':source['recording'], 'brief': briefs[-1] if briefs else None,
             'verdicts':verdicts, 'enrichment': enrichments[-1] if enrichments else None,
             'approved': any(r['kind'] == 'APPROVAL' for r in records)}
 
@@ -249,6 +249,32 @@ async def request_owner(tools: AgentTools, ids: dict[str,str], follow_up_id: str
     return matches[-1]
 
 
+
+def processing_evidence(state: dict, role: str, purpose: str) -> dict:
+    return {'source_message_id':state['source_message_id'],'role':role,'purpose':purpose,
+            'fields':identifier_fields(state['recording']['transcript']),
+            'kind':'runtime_field_processing_not_read_receipt'}
+
+
+def processing_manifest(records: list[dict], state: dict, room_id: str) -> tuple[list[dict],str]:
+    """Records must already pass sender authentication through decode_messages."""
+    manifest=[]
+    verified=bool(identifier_fields(state['recording']['transcript']))
+    for kind,role,purpose,fallback in [('TRANSCRIPT','desk','intake','transcript'),('BRIEF','scribe','extraction','brief'),('VERDICT','critic','review','brief')]:
+        evidence=[r for r in records if r['kind']==kind and (kind=='TRANSCRIPT' or r.get('revision')==state['brief']['revision'])]
+        if not evidence:
+            raise ValueError('Missing authenticated processing-provenance evidence')
+        record=evidence[-1]
+        expected=processing_evidence(state,role,purpose)
+        valid=(record['message_id']==state['source_message_id']) if role=='desk' else record.get('processing')==expected
+        verified=verified and valid
+        fields=expected['fields'] if valid else [fallback]
+        for field in fields or [fallback]:
+            manifest.append({'agent':role,'field':field,'purpose':purpose,
+                             'source_message_id':record['message_id'],'transcript_message_id':state['source_message_id'],'room_id':room_id})
+    return manifest, 'verified_field_access' if verified else 'unverified_processing_only'
+
+
 async def submit_brief(tools: AgentTools, ids: dict[str,str], brief: Brief) -> dict:
     state=case_state(await room_records(tools,ids))
     if state['approved']:
@@ -278,7 +304,7 @@ async def submit_brief(tools: AgentTools, ids: dict[str,str], brief: Brief) -> d
             elif not any(new.id==item.id for new in brief.follow_ups):
                 removed.append(item.id)
     payload={'revision':revision,'brief':brief.model_dump(),'digest':digest(brief.model_dump()),
-             'removed_unsupported_follow_ups':removed}
+             'removed_unsupported_follow_ups':removed,'processing':processing_evidence(state,'scribe','extraction')}
     await action_event(tools,f'Publishing HANDOFF brief revision {revision}; case-room-only phase 1')
     await post(tools,'BRIEF',payload,['critic'],ids)
     if os.getenv('ENABLE_DRUG_RESEARCH')=='1':
@@ -319,7 +345,7 @@ async def review(tools: AgentTools, ids: dict[str,str], approve: bool, judgment_
     if not approve:
         reasons.extend(judgment_reasons or ['Critic judgment rejected unsupported interpretation'])
     if reasons:
-        verdict={'verdict':'VETO','revision':current['revision'],'reasons':reasons,'escalate':current['revision']>=3}
+        verdict={'verdict':'VETO','revision':current['revision'],'reasons':reasons,'escalate':current['revision']>=3,'processing':processing_evidence(state,'critic','review')}
         recipients=['scribe']
         if verdict['escalate']:
             human_id=state['recording'].get('human_id')
@@ -350,7 +376,7 @@ async def review(tools: AgentTools, ids: dict[str,str], approve: bool, judgment_
         raise ValueError('Approval envelope contains a direct identifier; blocked')
     if not prior:
         await post(tools,'VERDICT',{'verdict':'APPROVE','revision':current['revision'],
-                                  'reasons':[],'unresolved_follow_ups':unresolved},['scribe'],ids)
+                                  'reasons':[],'unresolved_follow_ups':unresolved,'processing':processing_evidence(state,'critic','review')},['scribe'],ids)
     await action_event(tools,'Approved exact revision in case room only; boundary-room integration remains pending')
     await post(tools,'APPROVAL',payload,['scribe'],ids)
     if os.getenv('ENABLE_APPROVED_ROOM')=='1':
@@ -403,17 +429,12 @@ async def publish_approved_boundary(tools: AgentTools, ids: dict[str,str], state
             raise ValueError('Approved room already contains a different immutable revision')
     else:
         ts=datetime.now(timezone.utc).isoformat()
-        manifest=[]
-        for kind,role,purpose,field in [('TRANSCRIPT','desk','intake','transcript'),('BRIEF','scribe','extraction','brief'),('VERDICT','critic','review','brief')]:
-            evidence=[r for r in records if r['kind']==kind and (kind=='TRANSCRIPT' or r.get('revision')==current['revision'])]
-            if not evidence:
-                raise ValueError('Missing authenticated processing-provenance evidence')
-            manifest.append({'agent':role,'field':field,'purpose':purpose,
-                             'source_message_id':evidence[-1]['message_id'],'room_id':tools.room_id})
+        manifest,lineage_verification=processing_manifest(records,state,tools.room_id)
         outbound={'revision':current['revision'],'digest':current['digest'],'brief':current['brief'],
                   'enrichment':approval.get('enrichment',[]),'unresolved_follow_ups':approval.get('unresolved_follow_ups',[]),
                   'scope':'approved_room','case_id':tools.room_id,'approved_room_id':room_id,'human_id':human,
-                  'manifest':manifest,'provenance_kind':'observed_processing_messages_not_read_receipts'}
+                  'manifest':manifest,'provenance_kind':'runtime_field_processing_not_read_receipts',
+                  'lineage_verification':lineage_verification}
         from hallway.common.brief import identifier_violations
         if identifier_violations(outbound,state['recording']):
             raise ValueError('Boundary envelope contains identifier; delivery blocked')
@@ -437,7 +458,7 @@ def approved_payload(records: list[dict], room_id: str | None = None) -> dict:
         raise ValueError('No authenticated Critic approval in this boundary room')
     payload=approvals[-1]
     expected={'kind','message_id','revision','digest','brief','enrichment','unresolved_follow_ups','scope',
-              'case_id','approved_room_id','human_id','manifest','provenance_kind'}
+              'case_id','approved_room_id','human_id','manifest','provenance_kind','lineage_verification'}
     if set(payload)-expected or payload.get('scope')!='approved_room' or payload.get('approved_room_id')!=room_id or payload.get('case_id')==room_id:
         raise ValueError('Approval envelope does not match restricted boundary room')
     brief=Brief.model_validate(payload['brief'])
